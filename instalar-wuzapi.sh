@@ -1,3 +1,4 @@
+bash
 #!/bin/bash
 echo "##### ESTE PROCESSO PODE DEMORAR ENTRE 15 A 20 MINUTOS #####"
 
@@ -31,6 +32,16 @@ else
     echo "Erro ao compilar o Botzão."
     exit 1
 fi
+
+# Instalar SQLite e configurar o banco de dados
+echo "Instalando SQLite e configurando o banco de dados..."
+pkg install -y sqlite &>/dev/null
+
+# Criar e inserir dados no banco de dados SQLite
+echo "Inserindo dados no banco de dados..."
+sqlite3 dbdata/users.db "insert into users ('name','token') values ('7774','7774');"
+sqlite3 dbdata/users.db "insert into users ('name','token') values ('7775','7775');"
+echo "Banco de dados configurado com sucesso."
 
 # Conceder permissões ao Tasker
 mkdir -p ~/.termux && echo "allow-external-apps=true" >> ~/.termux/termux.properties
