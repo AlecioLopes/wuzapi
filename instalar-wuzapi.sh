@@ -1,11 +1,6 @@
 #!/bin/bash
 echo "##### ESTE PROCESSO PODE DEMORAR ENTRE 15 A 20 MINUTOS #####"
 
-# Atualizar e instalar dependências do Termux
-echo "Atualizando e instalando dependências do Termux..."
-pkg update -y && pkg upgrade -y &>/dev/null
-echo "Dependências do Termux atualizadas e instaladas com sucesso."
-
 # Instalar Git e Go
 echo "Instalando Git e Go..."
 pkg install -y git golang &>/dev/null
