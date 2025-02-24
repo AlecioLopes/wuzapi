@@ -1,9 +1,5 @@
 #!/bin/bash
 
-# Parar o script do wuzapi se estiver em execução
-echo "Parando o script do wuzapi..."
-pkill -f wuzapi
-
 # Instalar o SQLite
 echo "Instalando o SQLite..."
 pkg install -y sqlite &>/dev/null
