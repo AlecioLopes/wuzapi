@@ -6,15 +6,15 @@ echo "Instalando Git e Go..."
 pkg install -y git golang &>/dev/null
 echo "Git e Go foram instalados corretamente."
 
-# Clonar o repositório do Botzão
-echo "Clonando o repositório do Botzão..."
+# Clonar o repositório do BotZap
+echo "Clonando o repositório do BotZap..."
 git clone https://github.com/AlecioLopes/wuzapi.git &>/dev/null
 echo "Repositório clonado com sucesso."
 
 # Navegar para o diretório do projeto
 cd wuzapi
 
-# Compilar o binário do Botzão com o nome padrão
+# Compilar o binário do BotZap com o nome padrão
 echo "Compilando o binário..."
 go build . &>/dev/null
 
@@ -28,7 +28,7 @@ if [ -f "./wuzapi" ]; then
 
     echo "Permissões de execução concedidas ao Botzão."
 else
-    echo "Erro ao compilar o Botzão."
+    echo "Erro ao compilar o BotZap."
     exit 1
 fi
 
@@ -36,5 +36,5 @@ fi
 mkdir -p ~/.termux && echo "allow-external-apps=true" >> ~/.termux/termux.properties
 
 # Executar o Botzão
-echo "Executando o Botzão..."
+echo "Executando o BotZap..."
 ./wuzapi
