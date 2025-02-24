@@ -59,4 +59,3 @@ cat <<EOL > executar_wuzapi.sh #!/bin/bash cd "$(dirname "$0")" ./wuzapi EOL chm
 Finalização
 
 echo -e "${VERDE}Para executar o BotZap, use: ./wuzapi${RESET}"
-
