@@ -9,125 +9,199 @@ LOG_DIR="$HOME/wuzapi_logs"
 BINARY_NAME="wuzapi"
 DB_DIR="$HOME/wuzapi/dbdata"
 DB_FILE="$DB_DIR/users.db"
+SERVICE_DIR="$HOME/.termux/boot"
+SERVICE_FILE="$SERVICE_DIR/start-botzap"
+
+# Cores para o terminal
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
 
 # ======================================
 # FUNÇÕES UTILITÁRIAS
 # ======================================
 
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_DIR/instalacao.log"
+    echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_DIR/instalacao.log"
+}
+
+show_step() {
+    echo -e "${YELLOW}▶ $1${NC}"
+    log "$1"
+}
+
+show_success() {
+    echo -e "${GREEN}✔ $1${NC}"
+    log "$1"
+}
+
+show_error() {
+    echo -e "${RED}✖ $1${NC}"
+    log "$1"
+    exit 1
 }
 
 setup_database() {
-    # Criar diretório do banco de dados se não existir
-    mkdir -p "$DB_DIR"
+    show_step "Configurando banco de dados SQLite..."
     
-    # Verificar se o SQLite está instalado
+    # Criar diretório se não existir
+    mkdir -p "$DB_DIR" || show_error "Falha ao criar diretório do banco de dados"
+
+    # Verificar/instalar SQLite
     if ! command -v sqlite3 &>/dev/null; then
-        log "Instalando SQLite..."
-        pkg install -y sqlite || {
-            log "❌ Falha ao instalar SQLite"
-            exit 1
-        }
+        show_step "Instalando SQLite..."
+        pkg install -y sqlite || show_error "Falha ao instalar SQLite"
     fi
 
-    # Criar banco de dados e tabela se não existirem
-    if [ ! -f "$DB_FILE" ]; then
-        log "Criando banco de dados..."
-        sqlite3 "$DB_FILE" "CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE,
-            token TEXT UNIQUE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );" || {
-            log "❌ Erro ao criar banco de dados"
-            exit 1
-        }
+    # Criar tabela com tratamento de erros
+    sqlite3 "$DB_FILE" "CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE,
+        token TEXT UNIQUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );" || show_error "Erro na criação da tabela"
+
+    # Função para inserção segura de usuários
+    insert_user() {
+        local name="$1"
+        local token="$2"
         
-        # Inserir dados iniciais (opcional)
-        sqlite3 "$DB_FILE" "INSERT OR IGNORE INTO users (name, token) VALUES 
-            ('7774', '7774'),
-            ('7775', '7775');"
-            
-        log "✅ Banco de dados configurado com sucesso"
-    else
-        # Atualização segura do banco existente
-        log "✔ Banco de dados já existe (atualização segura)"
-        
-        # Adicionar novas colunas se necessário (exemplo de migração segura)
-        sqlite3 "$DB_FILE" "ALTER TABLE users ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;" 2>/dev/null
+        if sqlite3 "$DB_FILE" "INSERT OR IGNORE INTO users (name, token) VALUES ('$name', '$token');"; then
+            changes=$(sqlite3 "$DB_FILE" "SELECT changes();")
+            if [ "$changes" -eq 1 ]; then
+                show_success "Usuário $name inserido com sucesso"
+            else
+                show_step "Usuário $name já existia (não duplicado)"
+            fi
+        else
+            show_error "Falha crítica ao inserir usuário $name"
+        fi
+    }
+
+    # Inserir tokens essenciais
+    insert_user "7774" "7774"
+    insert_user "7775" "7775"
+
+    # Ajustar permissões
+    chmod 660 "$DB_FILE" && chmod 770 "$DB_DIR" || show_step "Aviso: Permissões do banco não ajustadas (continuando)"
+}
+
+install_dependencies() {
+    show_step "Atualizando pacotes e instalando dependências..."
+    pkg update -y && pkg install -y git golang ffmpeg sqlite || show_error "Falha na instalação das dependências"
+}
+
+clone_repository() {
+    show_step "Clonando repositório do $APP_NAME..."
+    if [ -d "$HOME/wuzapi" ]; then
+        show_step "Removendo instalação anterior..."
+        rm -rf "$HOME/wuzapi"
     fi
     
-    # Garantir permissões corretas
-    chmod 660 "$DB_FILE"
-    chmod 770 "$DB_DIR"
+    git clone "$REPO_URL" "$HOME/wuzapi" || show_error "Falha ao clonar repositório"
+}
+
+compile_binary() {
+    show_step "Compilando $BINARY_NAME..."
+    cd "$HOME/wuzapi" && go build -o $BINARY_NAME . || show_error "Falha na compilação"
+}
+
+setup_permissions() {
+    show_step "Configurando permissões..."
+    chmod +x "$HOME/wuzapi/$BINARY_NAME"
+    [ -f "$HOME/wuzapi/executar_wuzapi.sh" ] && chmod +x "$HOME/wuzapi/executar_wuzapi.sh"
+}
+
+configure_termux() {
+    show_step "Configurando ambiente Termux..."
+    mkdir -p "$HOME/.termux"
+    echo "allow-external-apps=true" > "$HOME/.termux/termux.properties"
+    termux-reload-settings
+}
+
+create_service() {
+    show_step "Criando serviço de inicialização automática..."
+    mkdir -p "$SERVICE_DIR"
+    
+    cat > "$SERVICE_FILE" <<EOF
+#!/data/data/com.termux/files/usr/bin/bash
+
+# Configurações do serviço
+LOG_DIR="\$HOME/wuzapi_logs"
+MAX_RETRIES=15
+SLEEP_TIME=5
+
+while true; do
+    echo "\$(date '+%Y-%m-%d %H:%M:%S') - Iniciando $APP_NAME" >> "\$LOG_DIR/service.log"
+    cd "\$HOME/wuzapi" && ./$BINARY_NAME
+    
+    # Código 130 = Ctrl+C (encerramento solicitado)
+    if [ \$? -eq 130 ]; then
+        echo "\$(date '+%Y-%m-%d %H:%M:%S') - Encerrado pelo usuário" >> "\$LOG_DIR/service.log"
+        break
+    fi
+    
+    if [ \$MAX_RETRIES -le 0 ]; then
+        echo "\$(date '+%Y-%m-%d %H:%M:%S') - Máximo de reinícios atingido" >> "\$LOG_DIR/service.log"
+        break
+    fi
+    
+    echo "\$(date '+%Y-%m-%d %H:%M:%S') - Reiniciando em \$SLEEP_TIME segundos..." >> "\$LOG_DIR/service.log"
+    sleep \$SLEEP_TIME
+    ((MAX_RETRIES--))
+done
+EOF
+
+    chmod +x "$SERVICE_FILE"
 }
 
 # ======================================
 # EXECUÇÃO PRINCIPAL
 # ======================================
 
-# Configuração inicial
-mkdir -p "$LOG_DIR"
 clear
+echo -e "${GREEN}"
 echo "#############################################"
-echo "  INSTALADOR DO $APP_NAME PARA TERMUX"
-echo "  Este processo pode levar até 15 minutos"
+echo "#  INSTALADOR AUTOMÁTICO DO $APP_NAME"
+echo "#  para Termux"
+echo "#"
+echo "#  Este processo pode levar alguns minutos"
 echo "#############################################"
-log "Iniciando instalação..."
+echo -e "${NC}"
 
-# 1. Instalar dependências básicas
-log "Instalando dependências principais..."
-pkg update -y && pkg install -y git golang ffmpeg sqlite || {
-    log "❌ Falha na instalação das dependências"
-    exit 1
-}
+# Configurar ambiente
+mkdir -p "$LOG_DIR"
+touch "$LOG_DIR/instalacao.log"
 
-# 2. Configurar banco de dados
+# Etapas de instalação
+install_dependencies
 setup_database
-
-# 3. Limpar instalações anteriores
-if [ -d "$HOME/wuzapi" ]; then
-    log "Removendo instalação anterior..."
-    rm -rf "$HOME/wuzapi"
-fi
-
-# 4. Clonar repositório
-log "Clonando repositório oficial..."
-git clone "$REPO_URL" "$HOME/wuzapi" || {
-    log "❌ Falha ao clonar repositório"
-    exit 1
-}
-
-# 5. Compilar
-log "Compilando $BINARY_NAME..."
-cd "$HOME/wuzapi" && go build -o $BINARY_NAME . || {
-    log "❌ Falha na compilação"
-    exit 1
-}
-
-# 6. Permissões
-chmod +x "$BINARY_NAME"
-[ -f "executar_wuzapi.sh" ] && chmod +x "executar_wuzapi.sh"
-
-# 7. Configurar Termux
-log "Configurando permissões do Termux..."
-mkdir -p "$HOME/.termux"
-echo "allow-external-apps=true" > "$HOME/.termux/termux.properties"
-termux-reload-settings
+clone_repository
+compile_binary
+setup_permissions
+configure_termux
+create_service
 
 # Finalização
-echo "✔️ Instalação concluída com sucesso!"
-echo "──────────────────────────────────────"
-echo "  Para iniciar o $APP_NAME:"
-echo "  cd ~/wuzapi && ./$BINARY_NAME"
-echo "──────────────────────────────────────"
-log "Instalação concluída com sucesso!"
+show_success "Instalação concluída com sucesso!"
+echo -e "${YELLOW}"
+echo "═══════════════════════════════════════════"
+echo "  COMANDOS ÚTEIS:"
+echo "  • Iniciar manualmente:"
+echo "    cd ~/wuzapi && ./wuzapi"
+echo "  "
+echo "  • Parar o serviço:"
+echo "    pkill -f wuzapi"
+echo "  "
+echo "  • Ver logs:"
+echo "    tail -f ~/wuzapi_logs/service.log"
+echo "═══════════════════════════════════════════"
+echo -e "${NC}"
 
 # Opção de iniciar automaticamente
 read -p "Deseja iniciar o $APP_NAME agora? [s/N] " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Ss]$ ]]; then
-    cd ~/wuzapi && ./$BINARY_NAME
+    cd ~/wuzapi && ./wuzapi
 fi
